@@ -9,17 +9,37 @@
 
 	var coinjs = window.coinjs = function () { };
 
+	coinjs.MAINNET_KEY = {
+		PUB: 0x00,
+		PRIV: 0x80,
+		MULTISIG: 0x05,
+		HDKEY: {
+			prv: 0x0488ade4,
+			pub: 0x0488b21e
+		}
+	}
+
+	coinjs.TESTNET_KEY = {
+		PUB: 0x6f,
+		PRIV: 0xef,
+		MULTISIG: 0xc4,
+		HDKEY: {
+			prv: 0x04358394,
+			pub: 0x043587cf,
+		}
+	}
+
+	// default network is mainnet
 	/* public vars */
-	coinjs.pub = 0x00;
-	coinjs.priv = 0x80;
-	coinjs.multisig = 0x05;
-	coinjs.hdkey = {'prv':0x0488ade4, 'pub':0x0488b21e};
-	coinjs.testnetPub = 0x6F; // 111
-	//TODO: support other type
+	coinjs.pub = coinjs.MAINNET_KEY.PUB;
+	coinjs.priv = coinjs.MAINNET_KEY.PRIV;
+	coinjs.multisig = coinjs.MAINNET_KEY.MULTISIG;
+	coinjs.hdkey = coinjs.MAINNET_KEY.HDKEY;
 
 	coinjs.compressed = false;
 
 	coinjs.COIN = 100000000;
+	coinjs.TRANSACTION_VERSION = 2;
 
 	/* other vars */
 	coinjs.developer = '17F6nrUSfaFAysetLHykFSSw3zySMTxCpU'; // bitcoin
@@ -131,19 +151,16 @@
 	/* provide a public key and return address */
 	coinjs.pubkey2address = function(h){
 		var r = ripemd160(Crypto.SHA256(Crypto.util.hexToBytes(h), {asBytes: true}));
-		if (coinjs.network == coinjs.BCH_TESTNET)
-			r.unshift(coinjs.testnetPub)
-		else
-			r.unshift(coinjs.pub);
+		r.unshift(coinjs.pub);
 		var hash = Crypto.SHA256(Crypto.SHA256(r, {asBytes: true}), {asBytes: true});
 		var checksum = hash.slice(0, 4);
 		return coinjs.base58encode(r.concat(checksum));
 	}
 
 	/* provide a scripthash and return address */
-	coinjs.scripthash2address = function(h){
+	coinjs.scripthash2address = function(h, prefix){
 		var x = Crypto.util.hexToBytes(h);
-		x.unshift(coinjs.pub);
+		x.unshift(prefix);
 		var r = x;
 		r = Crypto.SHA256(Crypto.SHA256(r,{asBytes: true}),{asBytes: true});
 		var checksum = r.slice(0,4);
@@ -264,9 +281,6 @@
 
 				} else if (o.version==coinjs.priv){ // wifkey
 					o.type = 'wifkey';
-
-				} else if (o.version==coinjs.testnetPub){
-					o.type = 'testnet_pub';
 
 				} else if (o.version==42) { // stealth address
 					o.type = 'stealth';
@@ -884,7 +898,7 @@
 	coinjs.transaction = function() {
 
 		var r = {};
-		r.version = 1;
+		r.version = coinjs.TRANSACTION_VERSION;
 		r.lock_time = 0;
 		r.ins = [];
 		r.outs = [];
@@ -1421,8 +1435,8 @@
 		}
 
 		/* signs a time locked / hodl input */
-		r.signhodl = function(index, wif, sigHashType){
-			var signature = this.transactionSig(index, wif, sigHashType);
+		r.signhodl = function(index, wif, sigHashType, scriptcode, amount){
+			var signature = this.transactionSig(index, wif, sigHashType, scriptcode, amount);
 			var redeemScript = this.ins[index].script.buffer
 			var s = coinjs.script();
 			s.writeBytes(Crypto.util.hexToBytes(signature));
@@ -1432,7 +1446,7 @@
 		}
 		
 		/* sign a multisig input */
-		r.signmultisig = function(index, wif, sigHashType){
+		r.signmultisig = function(index, wif, sigHashType, scriptcode, amount){
 
 			function scriptListPubkey(redeemScript){
 				var r = {};
@@ -1461,7 +1475,7 @@
 			var pubkeyList = scriptListPubkey(coinjs.script(redeemScript));
 			var sigsList = scriptListSigs(this.ins[index].script);
 
-			var hash = this.transactionHash(index, sigHashType);
+			var hash = this.transactionHash(index, sigHashType, scriptcode, amount);
 			var signature = Crypto.util.hexToBytes(this.transactionSig(index, wif, sigHashType));
 
 			sigsList[coinjs.countObject(sigsList)+1] = signature;
@@ -1473,7 +1487,7 @@
 			for(x in pubkeyList){
 				for(y in sigsList){
 					this.ins[index].script.buffer = redeemScript;
-					var hash = this.transactionHash(index, sigHashType);
+					var hash = this.transactionHash(index, sigHashType, scriptcode, amount);
 					if(coinjs.verifySignature(sighash, sigsList[y], pubkeyList[x])){
 						s.writeBytes(sigsList[y]);
 					}
@@ -1501,12 +1515,14 @@
 
 				if(((d['type'] == 'scriptpubkey' && d['script']==Crypto.util.bytesToHex(pubkeyHash.buffer)) || d['type'] == 'empty') && d['signed'] == "false"){
 					this.signinput(i, wif, shType, prevtxout.script, prevtxout.amount);
-				} else if (d['type'] == 'hodl' && d['signed'] == "false") {
-					this.signhodl(i, wif, shType);
+				} /*else if (d['type'] == 'hodl' && d['signed'] == "false") {
+					this.signhodl(i, wif, shType, prevtxout.script, prevtxout.amount);
 				} else if (d['type'] == 'multisig') {
-					this.signmultisig(i, wif, shType);
-				} else {
+					this.signmultisig(i, wif, shType, prevtxout.script, prevtxout.amount);
+				}*/ else {
 					// could not sign
+					alert(d['type'] + ' not support yet!');
+					return False;
 				}
 			}
 			return this.serialize();
