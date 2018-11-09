@@ -42,7 +42,7 @@
 	coinjs.TRANSACTION_VERSION = 2;
 
 	/* other vars */
-	coinjs.developer = '17F6nrUSfaFAysetLHykFSSw3zySMTxCpU'; // bitcoin
+	coinjs.developer = '13s6d4gARgSZdu2PYhcvq66vNysZsYPpZV'; // bitcoin
 
 	/* bit(coinb.in) api vars */
 	coinjs.host = ('https:'==document.location.protocol?'https://':'http://')+'coinb.in/api/';
