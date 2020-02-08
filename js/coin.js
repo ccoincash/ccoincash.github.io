@@ -49,34 +49,43 @@
 	coinjs.uid = '1';
 	coinjs.key = '12345678901234567890123456789012';
 
-	coinjs.BCH_TESTNET = 'bitcoincash_testnet';
-	coinjs.BCH_MAINNET = 'bitcoincash_mainnet'
-	coinjs.network = coinjs.BCH_MAINNET;
+	coinjs.BSV_TESTNET = 'bitcoinsv_testnet';
+	coinjs.BSV_MAINNET = 'bitcoinsv_mainnet'
+	coinjs.network = coinjs.BSV_MAINNET;
 
-	coinjs.TESTNET_URL = 'https://trest.bitcoin.com/v1';
-	coinjs.MAINNET_URL = 'https://rest.bitcoin.com/v1';
+    // main, test or stn
+	coinjs.TESTNET_URL = 'https://api.whatsonchain.com/v1/bsv/test';
+	coinjs.MAINNET_URL = 'https://api.whatsonchain.com/v1/bsv/main';
 
-	coinjs.bitcoincom = function() {
+	coinjs.whatsonchain = function() {
 		var r = {};
 		
-		r.details = function(address) {
-			return coinjs.currenturl + '/address/details/' + address;
+		r.balance = function(address) {
+			return coinjs.currenturl + '/address/' + address + '/balance';
 		}
 
 		r.utxo = function(address) {
-			return coinjs.currenturl + '/address/utxo/' + address;
+			return coinjs.currenturl + '/address/' + address + '/unspent';
 		}
 
 		r.sendtx = function(tx) {
-			return coinjs.currenturl + '/rawtransactions/sendRawTransaction/' + tx;
+			return coinjs.currenturl + '/tx/raw';
+		}
+
+		r.txinfo = function(tx) {
+			return coinjs.currenturl + '/tx/hash/' + tx;
+		}
+
+		r.bulktxs = function() {
+			return coinjs.currenturl + '/txs';
 		}
 
 		r.weburl = function() {
 			if (coinjs.currenturl == coinjs.MAINNET_URL) {
-				return "https://www.blocktrail.com/BCC";
+				return "https://whatsonchain.com";
 			}
 			else {
-				return "https://www.blocktrail.com/tBCC";
+				return "https://test.whatsonchain.com";
 			}
 		}
 
@@ -92,7 +101,7 @@
 	}();
 
 	coinjs.currenturl = coinjs.MAINNET_URL;
-	coinjs.bchapi = coinjs.bitcoincom
+	coinjs.bsvapi = coinjs.whatsonchain
 
 	/* start of address functions */
 
@@ -365,10 +374,10 @@
 	coinjs.addressBalance = function(address, callback){
 		function balance(data) {
 			data = JSON.parse(data);
-			satoshi = data.balanceSat;
+			satoshi = data.confirmed + data.unconfirmed;
 			callback(satoshi);
 		}
-		coinjs.ajax(coinjs.bchapi.details(address), balance, 'GET');
+		coinjs.ajax(coinjs.bsvapi.balance(address), balance, 'GET');
 	}
 
 	/* decompress an compressed public key */
@@ -1037,7 +1046,7 @@
 		}
 
 		r.listUnspent2 = function(address, callback) {
-			coinjs.ajax(coinjs.bchapi.utxo(address), callback, 'GET');
+			coinjs.ajax(coinjs.bsvapi.utxo(address), callback, 'GET');
 		}
 
 		/* add unspent to transaction */
@@ -1097,14 +1106,15 @@
 					return False;
 				}
 
-				var prevtxouts = coinjs.Txouts();
 				// add utxo with increasing order
 				var inputAmount = 0;
+				var txhashs = [];
+				var txouts = [];
 				for (var i = 0; i < utxos.length; ++i) {
 					var input = utxos[i];
-					inputAmount += input.satoshis;
-					self.addinput(input.txid, input.vout, input.scriptPubKey);
-					prevtxouts.addtxout(input.scriptPubKey, input.satoshis);
+					inputAmount += input.value;
+					txhashs.push(input.tx_hash);
+					txouts.push([input.tx_hash, input.tx_pos, input.value]);
 					if (inputAmount >= totalSpent)
 						break;
 				}
@@ -1112,11 +1122,32 @@
 				if (inputAmount < totalSpent)
 					return False;
 
-				var x = {};
-				x.value = inputAmount;
-				x.prevtxouts = prevtxouts;
+				function bulktxs(data) {
+					console.log('bulktxs: ', data)
+					data = JSON.parse(data);
+					var prevtxouts = coinjs.Txouts();
+					for (var i = 0; i < data.length; ++i) {
+						var tx = data[i];
+						console.assert(txouts[i][0] == tx.txid, 'wrong txout 2');
+						var pos = txouts[i][1];
+						var txout = tx.vout[pos];
+						self.addinput(tx.txid, pos, txout.scriptPubKey.hex);
+						prevtxouts.addtxout(txout.scriptPubKey.hex,  txouts[i][2]);
+					}
+					var x = {};
+					x.value = inputAmount;
+					x.prevtxouts = prevtxouts;
 
-				return callback(x);
+					return callback(x);
+				}
+
+				forms = {
+					'txids': txhashs
+				}
+
+				console.log('addUnspend2: txids ', txhashs, txouts)
+				coinjs.ajax(coinjs.bsvapi.bulktxs(), bulktxs, 'POST', JSON.stringify(forms))
+
 			});
 		}
 
@@ -1138,8 +1169,8 @@
 
 		r.broadcast2 = function(callback, txhex){
 			var tx = txhex || this.serialize();
-			var form = 'rawtx=' + tx;
-			coinjs.ajax(coinjs.bchapi.sendtx(tx), callback, 'POST')
+			var form = {'txhex': tx};
+			coinjs.ajax(coinjs.bsvapi.sendtx(tx), callback, 'POST', JSON.stringify(form))
 		}
 
 		r.sha256Sha256 = function(buffer) {
@@ -1179,7 +1210,7 @@
 			return this.sha256Sha256(buffer);
 		}
 
-		// transactionHash used in bitcoin cash
+		// transactionHash used in bitcon sv
 		r.transactionHash2 = function(index, sigHashType, scriptcode, amount) {
 			var nHashType = sigHashType
 			var hashPrevouts = coinjs.uint256();
@@ -1816,7 +1847,7 @@
 		};
 
 		if(m == 'POST'){
-			x.setRequestHeader('Content-type','application/x-www-form-urlencoded');
+			x.setRequestHeader('Content-type','application/json');
 		}
 
 		x.send(a);
